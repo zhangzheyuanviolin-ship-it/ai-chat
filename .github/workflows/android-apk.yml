@@ -31,10 +31,22 @@ jobs:
         with:
           log-accepted-android-sdk-licenses: false
 
+      - name: Create gradle.properties
+        run: |
+          cat > examples/llama.android/gradle.properties << 'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          android.native.buildOutput=verbose
+          EOF
+
+      - name: Make gradlew executable
+        run: chmod +x examples/llama.android/gradlew
+
       - name: Build Debug APK
         run: |
           cd examples/llama.android
-          chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace --console=plain
 
       - name: Upload APK
