@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-        xmlns:tools="http://schemas.android.com/tools"
-        android:id="@+id/main"
-        android:layout_height="match_parent"
-        android:layout_width="match_parent">
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".MainActivity">
 
     <LinearLayout
         android:fitsSystemWindows="true"
@@ -13,43 +14,59 @@
         android:orientation="vertical"
         tools:context=".MainActivity">
 
+        <!-- Model Manager Button (Top) -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/model_manager_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="16dp"
+            android:text="模型管理"
+            android:textSize="16sp"
+            android:contentDescription="打开模型管理页面"
+            app:icon="@drawable/outline_folder_open_24"
+            app:iconGravity="textStart"
+            style="@style/Widget.Material3.Button.TonalButton" />
+
+        <!-- Model Info Display -->
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1">
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginBottom="8dp"
+            android:background="?attr/colorPrimaryContainer"
+            android:padding="12dp">
 
-            <ScrollView
+            <TextView
+                android:id="@+id/gguf"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:fadeScrollbars="false">
-
-                <TextView
-                    android:id="@+id/gguf"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_margin="16dp"
-                    android:text="Selected GGUF model's metadata will show here."
-                    style="@style/TextAppearance.MaterialComponents.Body2"
-                    android:maxLines="100" />
-
-            </ScrollView>
+                android:text="请先在模型管理中导入并加载模型"
+                style="@style/TextAppearance.MaterialComponents.Body2"
+                android:textColor="?attr/colorOnPrimaryContainer"
+                android:maxLines="3"
+                android:importantForAccessibility="yes"
+                android:labelFor="@id/messages" />
 
         </FrameLayout>
 
+        <!-- Messages RecyclerView -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/messages"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="4"
+            android:layout_weight="1"
             android:padding="16dp"
             android:fadeScrollbars="false"
             app:reverseLayout="true"
-            tools:listitem="@layout/item_message_assistant"/>
+            tools:listitem="@layout/item_message_assistant"
+            android:contentDescription="聊天消息列表" />
 
+        <!-- Input Area -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:padding="8dp">
 
             <EditText
                 android:id="@+id/user_input"
@@ -59,7 +76,9 @@
                 android:layout_height="match_parent"
                 android:padding="8dp"
                 style="@style/TextAppearance.MaterialComponents.Body2"
-                android:hint="Please first pick a GGUF model file to import." />
+                android:hint="请先在模型管理中选择并加载模型"
+                android:contentDescription="输入消息文本框"
+                android:importantForAccessibility="yes" />
 
             <com.google.android.material.floatingactionbutton.FloatingActionButton
                 android:id="@+id/fab"
@@ -68,7 +87,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_margin="8dp"
-                android:src="@drawable/outline_folder_open_24" />
+                android:src="@drawable/outline_send_24"
+                android:contentDescription="发送" />
 
         </LinearLayout>
 

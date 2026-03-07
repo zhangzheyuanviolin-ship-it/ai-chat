@@ -67,7 +67,7 @@ interface InferenceEngine {
     }
 
     companion object {
-        const val DEFAULT_PREDICT_LENGTH = 1024
+        const val DEFAULT_PREDICT_LENGTH = 4096
     }
 }
 

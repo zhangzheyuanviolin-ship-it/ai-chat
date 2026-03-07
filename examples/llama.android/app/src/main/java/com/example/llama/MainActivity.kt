@@ -1,29 +1,25 @@
 package com.example.llama
 
-import android.net.Uri
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.arm.aichat.AiChat
 import com.arm.aichat.InferenceEngine
-import com.arm.aichat.gguf.GgufMetadata
-import com.arm.aichat.gguf.GgufMetadataReader
+import com.arm.aichat.ModelRepository
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
-import java.io.InputStream
 import java.util.UUID
 
 class MainActivity : AppCompatActivity() {
@@ -33,9 +29,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var messagesRv: RecyclerView
     private lateinit var userInputEt: EditText
     private lateinit var userActionFab: FloatingActionButton
+    private lateinit var btnModelManager: MaterialButton
 
     // Arm AI Chat inference engine
     private lateinit var engine: InferenceEngine
+    private lateinit var modelRepository: ModelRepository
 
     // Conversation states
     private var isModelReady = false
@@ -48,6 +46,9 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
 
+        // Initialize repository
+        modelRepository = ModelRepository.getInstance(this)
+
         // Find views
         ggufTv = findViewById(R.id.gguf)
         messagesRv = findViewById(R.id.messages)
@@ -55,65 +56,83 @@ class MainActivity : AppCompatActivity() {
         messagesRv.adapter = messageAdapter
         userInputEt = findViewById(R.id.user_input)
         userActionFab = findViewById(R.id.fab)
+        btnModelManager = findViewById(R.id.btn_model_manager)
 
         // Arm AI Chat initialization
         lifecycleScope.launch(Dispatchers.Default) {
             engine = AiChat.getInferenceEngine(applicationContext)
         }
 
-        // Upon CTA button tapped
+        // Model manager button click - navigate to ModelManagerActivity
+        btnModelManager.setOnClickListener {
+            val intent = Intent(this, ModelManagerActivity::class.java)
+            startActivity(intent)
+        }
+
+        // Send message button click
         userActionFab.setOnClickListener {
             if (isModelReady) {
-                // If model is ready, validate input and send to engine
                 handleUserInput()
             } else {
-                // Otherwise, prompt user to select a GGUF metadata on the device
-                getContent.launch(arrayOf("*/*"))
+                Toast.makeText(this, "请先从模型管理页面加载模型", Toast.LENGTH_SHORT).show()
             }
         }
+
+        // Try to auto-load last used model
+        autoLoadLastModel()
     }
 
-    private val getContent = registerForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        Log.i(TAG, "Selected file uri:\n $uri")
-        uri?.let { handleSelectedModel(it) }
+    override fun onResume() {
+        super.onResume()
+        // Check if model state changed while in ModelManagerActivity
+        checkModelState()
     }
 
     /**
-     * Handles the file Uri from [getContent] result
+     * Auto-load the last used model on app start
      */
-    private fun handleSelectedModel(uri: Uri) {
-        // Update UI states
-        userActionFab.isEnabled = false
-        userInputEt.hint = "Parsing GGUF..."
-        ggufTv.text = "Parsing metadata from selected file \n$uri"
-
-        lifecycleScope.launch(Dispatchers.IO) {
-            // Parse GGUF metadata
-            Log.i(TAG, "Parsing GGUF metadata...")
-            contentResolver.openInputStream(uri)?.use {
-                GgufMetadataReader.create().readStructuredMetadata(it)
-            }?.let { metadata ->
-                // Update UI to show GGUF metadata to user
-                Log.i(TAG, "GGUF parsed: \n$metadata")
+    private fun autoLoadLastModel() {
+        lifecycleScope.launch {
+            val currentModelId = modelRepository.getCurrentModelId()
+            currentModelId?.let { modelId ->
+                val modelInfo = modelRepository.getModelById(modelId)
+                modelInfo?.let { model ->
+                    // Verify model file still exists
+                    if (modelRepository.modelFileExists(model.filePath)) {
+                        Log.i(TAG, "Auto-loading last used model: ${model.displayName}")
+                        withContext(Dispatchers.Main) {
+                            ggufTv.text = "正在自动加载模型：${model.displayName}..."
+                        }
+                        loadModel(model.fileName, model.filePath)
+                    } else {
+                        Log.w(TAG, "Last model file not found, clearing reference")
+                        modelRepository.clearCurrentModel()
+                        withContext(Dispatchers.Main) {
+                            ggufTv.text = "上次使用的模型文件未找到，请重新选择模型。"
+                        }
+                    }
+                }
+            } ?: run {
+                Log.i(TAG, "No last model found, waiting for user to select")
                 withContext(Dispatchers.Main) {
-                    ggufTv.text = metadata.toString()
+                    ggufTv.text = "请从模型管理页面加载模型。"
                 }
+            }
+        }
+    }
 
-                // Ensure the model file is available
-                val modelName = metadata.filename() + FILE_EXTENSION_GGUF
-                contentResolver.openInputStream(uri)?.use { input ->
-                    ensureModelFile(modelName, input)
-                }?.let { modelFile ->
-                    loadModel(modelName, modelFile)
-
-                    withContext(Dispatchers.Main) {
-                        isModelReady = true
-                        userInputEt.hint = "Type and send a message!"
-                        userInputEt.isEnabled = true
-                        userActionFab.setImageResource(R.drawable.outline_send_24)
-                        userActionFab.isEnabled = true
+    /**
+     * Check if model state changed (called from onResume)
+     */
+    private fun checkModelState() {
+        val currentModelId = modelRepository.getCurrentModelId()
+        if (currentModelId != null && !isModelReady) {
+            // Model was loaded in ModelManagerActivity, reload it here
+            lifecycleScope.launch {
+                val modelInfo = modelRepository.getModelById(currentModelId)
+                modelInfo?.let { model ->
+                    if (modelRepository.modelFileExists(model.filePath)) {
+                        loadModel(model.fileName, model.filePath)
                     }
                 }
             }
@@ -121,37 +140,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Prepare the model file within app's private storage
+     * Load the model file
      */
-    private suspend fun ensureModelFile(modelName: String, input: InputStream) =
-        withContext(Dispatchers.IO) {
-            File(ensureModelsDirectory(), modelName).also { file ->
-                // Copy the file into local storage if not yet done
-                if (!file.exists()) {
-                    Log.i(TAG, "Start copying file to $modelName")
-                    withContext(Dispatchers.Main) {
-                        userInputEt.hint = "Copying file..."
-                    }
-
-                    FileOutputStream(file).use { input.copyTo(it) }
-                    Log.i(TAG, "Finished copying file to $modelName")
-                } else {
-                    Log.i(TAG, "File already exists $modelName")
-                }
-            }
-        }
-
-    /**
-     * Load the model file from the app private storage
-     */
-    private suspend fun loadModel(modelName: String, modelFile: File) =
-        withContext(Dispatchers.IO) {
-            Log.i(TAG, "Loading model $modelName")
+    private suspend fun loadModel(modelName: String, modelPath: String) = withContext(Dispatchers.IO) {
+        try {
+            Log.i(TAG, "Loading model: $modelName")
             withContext(Dispatchers.Main) {
-                userInputEt.hint = "Loading model..."
+                userInputEt.hint = "正在加载模型..."
             }
-            engine.loadModel(modelFile.path)
+            engine.loadModel(modelPath)
+            
+            withContext(Dispatchers.Main) {
+                isModelReady = true
+                userInputEt.hint = "输入消息并发送..."
+                userInputEt.isEnabled = true
+                userActionFab.isEnabled = true
+                ggufTv.text = "已加载模型：$modelName"
+                Toast.makeText(this@MainActivity, "模型加载成功", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load model", e)
+            withContext(Dispatchers.Main) {
+                ggufTv.text = "模型加载失败：${e.message}"
+                Toast.makeText(this@MainActivity, "模型加载失败", Toast.LENGTH_LONG).show()
+            }
         }
+    }
 
     /**
      * Validate and send the user message into [InferenceEngine]
@@ -159,7 +173,7 @@ class MainActivity : AppCompatActivity() {
     private fun handleUserInput() {
         userInputEt.text.toString().also { userSsg ->
             if (userSsg.isEmpty()) {
-                Toast.makeText(this, "Input message is empty!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "输入消息不能为空!", Toast.LENGTH_SHORT).show()
             } else {
                 userInputEt.text = null
                 userActionFab.isEnabled = false
@@ -192,66 +206,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Run a benchmark with the model file
-     */
-    private suspend fun runBenchmark(modelName: String, modelFile: File) =
-        withContext(Dispatchers.Default) {
-            Log.i(TAG, "Starts benchmarking $modelName")
-            withContext(Dispatchers.Main) {
-                userInputEt.hint = "Running benchmark..."
-            }
-            engine.bench(
-                pp=BENCH_PROMPT_PROCESSING_TOKENS,
-                tg=BENCH_TOKEN_GENERATION_TOKENS,
-                pl=BENCH_SEQUENCE,
-                nr=BENCH_REPETITION
-            ).let { result ->
-                messages.add(Message(UUID.randomUUID().toString(), result, false))
-                withContext(Dispatchers.Main) {
-                    messageAdapter.notifyItemChanged(messages.size - 1)
-                }
-            }
-        }
-
-    /**
-     * Create the `models` directory if not exist.
-     */
-    private fun ensureModelsDirectory() =
-        File(filesDir, DIRECTORY_MODELS).also {
-            if (it.exists() && !it.isDirectory) { it.delete() }
-            if (!it.exists()) { it.mkdir() }
-        }
-
     companion object {
         private val TAG = MainActivity::class.java.simpleName
-
-        private const val DIRECTORY_MODELS = "models"
-        private const val FILE_EXTENSION_GGUF = ".gguf"
 
         private const val BENCH_PROMPT_PROCESSING_TOKENS = 512
         private const val BENCH_TOKEN_GENERATION_TOKENS = 128
         private const val BENCH_SEQUENCE = 1
         private const val BENCH_REPETITION = 3
-    }
-}
-
-fun GgufMetadata.filename() = when {
-    basic.name != null -> {
-        basic.name?.let { name ->
-            basic.sizeLabel?.let { size ->
-                "$name-$size"
-            } ?: name
-        }
-    }
-    architecture?.architecture != null -> {
-        architecture?.architecture?.let { arch ->
-            basic.uuid?.let { uuid ->
-                "$arch-$uuid"
-            } ?: "$arch-${System.currentTimeMillis()}"
-        }
-    }
-    else -> {
-        "model-${System.currentTimeMillis().toHexString()}"
     }
 }
