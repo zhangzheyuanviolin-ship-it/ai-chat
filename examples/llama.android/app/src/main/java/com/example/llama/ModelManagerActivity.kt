@@ -107,15 +107,12 @@ class ModelManagerActivity : AppCompatActivity() {
                         val modelsDir = modelRepository.ensureModelsDirectory()
                         val destFile = File(modelsDir, modelName)
                         
-                        // Copy file in chunks
+                        // Copy file directly from URI using ContentResolver (no temp file)
                         withContext(Dispatchers.Main) {
                             Toast.makeText(this@ModelManagerActivity, "正在导入模型...", Toast.LENGTH_SHORT).show()
                         }
                         
-                        val copyResult = modelRepository.copyFileInChunks(
-                            getRealPathFromUri(uri),
-                            destFile.absolutePath
-                        )
+                        val copyResult = copyFileFromUri(uri, destFile)
                         
                         if (copyResult.isSuccess) {
                             // Add to repository
@@ -163,18 +160,20 @@ class ModelManagerActivity : AppCompatActivity() {
     }
 
     /**
-     * Get real path from URI
+     * Copy file directly from URI using ContentResolver (no temp file, works with Android 11+ scoped storage)
      */
-    private fun getRealPathFromUri(uri: Uri): String {
-        // For content:// URIs, we need to copy from the content resolver
-        // We'll use a temporary file approach
-        val tempFile = File(cacheDir, "temp_model_${System.currentTimeMillis()}.gguf")
-        contentResolver.openInputStream(uri)?.use { input ->
-            tempFile.outputStream().use { output ->
-                input.copyTo(output)
+    private fun copyFileFromUri(uri: Uri, destFile: File): Result<Unit> {
+        return try {
+            contentResolver.openInputStream(uri)?.use { input ->
+                destFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
             }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to copy file from URI: ${uri}", e)
+            Result.failure(e)
         }
-        return tempFile.absolutePath
     }
 
     /**
